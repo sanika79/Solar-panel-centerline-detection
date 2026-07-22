@@ -84,3 +84,29 @@ The assignment brief calls this out explicitly as an optional extension: estimat
 **misalignment_detection_demo.png** — since the dataset has no real labeled misalignment to test against, validated detection capability via a controlled synthetic injection: took `tile_r0_c12500` (4 clean, aligned rows) and synthetically rotated one row +8° around its own midpoint (simulating a stuck/misaligned tracker). Correctly and exclusively flagged: the injected row's deviation jumped from 0.05° to 8.02° and was the only one flagged; the three genuine rows stayed at 0.07-0.16°. `tests/test_orientation.py::test_synthetic_misalignment_is_detected` locks this in too.
 
 **How this would feed a real downstream monitoring pipeline** (ties directly to Levit AI's "autonomous infrastructure monitoring" framing): a production version would run this per-tile detector across every tile in a flight, then aggregate per-tile flags into a farm-wide GIS layer (using the affine transform from the data-analysis phase to place each flagged row at its real Easting/Northing). Two complementary signals, not either/or: (1) **cross-sectional** (this method) — compare a row's tilt against its neighbors in the same flight, catches acute failures immediately, no history needed; (2) **longitudinal** — track each physical row's tilt across repeat flights over time, catches slow drift/degradation that's still within-neighbor-tolerance on any single flight but trending wrong over weeks/months. The cross-sectional method built here is deliberately the cheaper, zero-history version — exactly the kind of thing worth shipping first and then layering the temporal signal on top of once multiple flights exist.
+
+## Encoder ablation: transformer backbone (`outputs/checkpoints/mit_b0`)
+
+Swapped the U-Net's ResNet34 encoder for **MiT-B0** (SegFormer's hierarchical Mix Vision Transformer, via `segmentation_models_pytorch`'s direct MiT support, ImageNet-pretrained) — same loss/thickness/epochs/uniform-sampling as the original baseline, only the encoder changed, to isolate that one variable. MiT-B0 has ~5.5M parameters vs. ResNet34's ~24M. Best checkpoint: epoch 17, val_loss=1.3578 — already better than ResNet34's epoch-24 best of 1.3752, and converged faster with a smaller model.
+
+**encoder_comparison_resnet34_vs_mit_b0_TEST.png** — the gap holds up on the held-out test split, non-empty tiles:
+
+| (test) | ResNet34 | MiT-B0 | Δ |
+|---|---|---|---|
+| pixel F1 | 0.446 | 0.526 | +0.080 |
+| line match rate | 0.854 | 0.894 | +0.040 |
+| line precision | 0.611 | **0.817** | **+0.206** |
+| n_pred_segments (GT=220) | 321 | 246 | far less fragmented |
+
+The +21pp precision gain and drop from 321→246 predicted segments (GT is 220) show the transformer backbone produces substantially less fragmented masks than the CNN — directly consistent with the earlier stage-by-stage diagnostic (`vectorize_steps/`), which found the raw probability mask itself, not the post-processing, was the main source of spurious extra segments.
+
+**Drive-pier tiles specifically, test split** — MiT-B0 with *no* pier-specific intervention beats the ResNet34+oversampling fix:
+
+| | ResNet34 baseline | ResNet34 + oversampling | MiT-B0 (uniform sampling) |
+|---|---|---|---|
+| pier line match rate | 0.644 | 0.721 | **0.744** |
+| pier line precision | 0.641 | 0.724 | **0.809** |
+
+**Reading on this**: the drive-pier weakness and the general fragmentation problem look like they share a common root cause — a CNN encoder's limited receptive field producing patchier, less-coherent raw probability masks — and a transformer's global attention addresses that root cause more directly than reweighting the training distribution does. This doesn't make the oversampling experiment worthless (it's still a real, cheap, valid fix for a CNN backbone, and the two are not mutually exclusive), but it reframes the priority: architecture choice mattered more here than the sampling fix. **`6_gt_vs_predicted_mit_b0_pier_and_no_pier.png`** in `examples/` shows this qualitatively too — the same drive-pier tile's second row, whose top segment was entirely missing in the ResNet34+oversampling prediction, is fully recovered by MiT-B0.
+
+Next experiment queued: MiT-B0 + drive-pier oversampling combined, to see if the two improvements stack.
