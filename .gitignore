@@ -1,0 +1,14 @@
+# Environments
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Generated outputs (regenerate via README instructions) -- checkpoints
+# alone are ~560MB across 6 files, well past what belongs in git
+outputs/
+
+# OS
+.DS_Store
+Thumbs.db
