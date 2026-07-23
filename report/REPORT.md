@@ -16,7 +16,7 @@ The 670 tiles form a contiguous crop grid of one solar farm, not independent sam
 
 ## Key findings
 
-**Finding 1 — a drive-pier-specific weakness, and a cheap fix.** Stratifying the ResNet34 baseline's results by `has_drive_pier` surfaced a much larger effect than general over-segmentation: line match rate collapsed from **96% (normal rows) to 41% (drive-pier tiles)**, traced to the training `DataLoader` having no stratified sampling for a pattern that's only ~12% of train data. A `WeightedRandomSampler` (5x weight on pier tiles) closed part of the gap with no cost to the majority class, confirmed on held-out test: pier line match rate 64.4%→72.1%, precision 64.1%→72.4%, non-pier unchanged.
+**Finding 1 — a drive-pier weakness, and a cheap fix.** Stratifying the ResNet34 baseline by `has_drive_pier` surfaced a much larger effect than general over-segmentation: line match rate collapsed from **96% (normal rows) to 41% (pier tiles)**, traced to the `DataLoader` having no stratified sampling for a pattern that's only ~12% of train data. A `WeightedRandomSampler` (5x pier weight) closed part of the gap with no cost to the majority class, confirmed on test: pier match rate 64.4%→72.1%, precision 64.1%→72.4%.
 
 **Finding 2 — the transformer backbone outperforms the fix.** Swapping only the encoder (ResNet34→MiT-B0, everything else identical, uniform sampling) beat *both* the ResNet34 baseline and the ResNet34+oversampling fix, with ~4x fewer parameters — confirmed on test:
 
@@ -26,8 +26,10 @@ The 670 tiles form a contiguous crop grid of one solar farm, not independent sam
 | pier line match rate | 64.4% | 72.1% | **74.4%** |
 | pier line precision | 64.1% | 72.4% | **80.9%** |
 
-Reading: the drive-pier weakness and general fragmentation likely share a root cause — a CNN's limited receptive field producing patchier raw probability masks — and a transformer's global attention addresses that more directly than reweighting the training distribution does. The two aren't mutually exclusive; MiT-B0 + oversampling combined is the natural next experiment.
+Reading: the drive-pier weakness and general fragmentation likely share a root cause — a CNN's limited receptive field producing patchier raw probability masks — and a transformer's global attention addresses that more directly than reweighting the training distribution does.
+
+**Finding 3 — the two fixes don't stack.** MiT-B0 + the same 5x pier oversampling was tested and made things *worse* across the board on test: pier line match rate 74.4%→44.2% (below even plain ResNet34's 64.4%), overall precision 81.7%→54.1% — likely overfitting to the small pool of 56 pier tiles once oversampled, rather than the CNN's under-exposure problem this fix was designed for. **Best model found: MiT-B0, plain uniform sampling** — a fix validated on one architecture didn't transfer to another.
 
 ## Extension and limitations
 
-Implemented row-tilt/misalignment detection (median-deviation flagging) as the brief's optional extension — validated against a synthetic +8° injection (correctly flagged), zero false positives on real farm-wide data (max natural deviation 0.96°). Main limitations: predicted masks are still somewhat fragmented relative to GT even with MiT-B0; fragmentation from real-imagery interruptions vs. drive-pier gaps look like two distinct failure modes (`preliminary_results/vectorize_steps/`) not yet evaluated separately; MiT-B0+oversampling combined is untested; and real-neighbor context-padding (`context_pad.py`, implemented) was left opt-in given the time budget.
+Implemented row-tilt/misalignment detection (median-deviation flagging) as the brief's optional extension — validated against a synthetic +8° injection (correctly flagged), zero false positives on real farm-wide data (max natural deviation 0.96°). Main limitations: predicted masks are still somewhat fragmented relative to GT even with MiT-B0; fragmentation from real-imagery interruptions vs. drive-pier gaps look like two distinct failure modes (`preliminary_results/vectorize_steps/`) not yet evaluated separately; and real-neighbor context-padding (`context_pad.py`, implemented) was left opt-in given the time budget.

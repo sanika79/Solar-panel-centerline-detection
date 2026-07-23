@@ -107,6 +107,19 @@ The +21pp precision gain and drop from 321→246 predicted segments (GT is 220) 
 | pier line match rate | 0.644 | 0.721 | **0.744** |
 | pier line precision | 0.641 | 0.724 | **0.809** |
 
-**Reading on this**: the drive-pier weakness and the general fragmentation problem look like they share a common root cause — a CNN encoder's limited receptive field producing patchier, less-coherent raw probability masks — and a transformer's global attention addresses that root cause more directly than reweighting the training distribution does. This doesn't make the oversampling experiment worthless (it's still a real, cheap, valid fix for a CNN backbone, and the two are not mutually exclusive), but it reframes the priority: architecture choice mattered more here than the sampling fix. **`6_gt_vs_predicted_mit_b0_pier_and_no_pier.png`** in `examples/` shows this qualitatively too — the same drive-pier tile's second row, whose top segment was entirely missing in the ResNet34+oversampling prediction, is fully recovered by MiT-B0.
+**Reading on this**: the drive-pier weakness and the general fragmentation problem look like they share a common root cause — a CNN encoder's limited receptive field producing patchier, less-coherent raw probability masks — and a transformer's global attention addresses that root cause more directly than reweighting the training distribution does. **`6_gt_vs_predicted_mit_b0_pier_and_no_pier.png`** in `examples/` shows this qualitatively too — the same drive-pier tile's second row, whose top segment was entirely missing in the ResNet34+oversampling prediction, is fully recovered by MiT-B0.
 
-Next experiment queued: MiT-B0 + drive-pier oversampling combined, to see if the two improvements stack.
+## Combined experiment: MiT-B0 + drive-pier oversampling — a negative result
+
+The obvious next step, tested and reported honestly even though it didn't work: does stacking the two fixes help further? Same MiT-B0 setup, same 5x pier-weighted `WeightedRandomSampler` as the ResNet34 experiment. Result on held-out test (`mit_b0_oversampling_negative_result_TEST.png`, non-empty tiles): **it made things worse, across the board, hitting the pier subgroup hardest**:
+
+| (test) | MiT-B0 baseline | MiT-B0 + oversampling | Δ |
+|---|---|---|---|
+| overall line match rate | 89.4% | 72.6% | −16.8pp |
+| overall line precision | 81.7% | 54.1% | −27.6pp |
+| pier line match rate | **74.4%** | 44.2% | **−30.2pp** (worse than the plain ResNet34 baseline's 64.4%) |
+| pier line precision | 80.9% | 54.1% | −26.8pp |
+
+This is the opposite of what oversampling did for ResNet34, where it was a clean, real improvement. Best current explanation: MiT-B0's global attention already handles the natural ~12% pier frequency well without needing oversampling, and artificially skewing ~40% of each epoch's draws toward a small pool of 56 unique pier tiles likely pushes it toward overfitting on those specific tiles (each seen ~3.4x/epoch) at the expense of generalizing across the fuller, more varied tile distribution its attention mechanism was otherwise learning from well. A CNN's problem (not enough exposure to an underrepresented pattern) and a transformer's problem (needing broad, varied exposure to learn good global attention) aren't the same problem, so the same fix doesn't transfer.
+
+**Practical conclusion**: the best model found in this project is **MiT-B0 with plain uniform sampling** (`outputs/checkpoints/mit_b0`) — not the combination. Architecture and data strategy interacted here in a genuinely non-additive, non-obvious way, which is itself a useful finding: a fix validated on one architecture shouldn't be assumed to transfer to another without re-testing, even when the intervention (oversample the known-weak subgroup) sounds architecture-agnostic on paper.
