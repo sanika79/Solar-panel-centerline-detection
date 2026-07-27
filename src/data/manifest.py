@@ -21,6 +21,8 @@ PIER_X_TOL = 20.0  # px tolerance for pairing a row's top/bottom segments
 
 def _segment_span(seg: Segment) -> tuple[float, float, float]:
     (x1, y1), (x2, y2) = seg
+    # x_mid — the average x-position of the two endpoints. 
+    # Since these rows are near-vertical, this is basically "which column is this row in."
     x_mid = (x1 + x2) / 2.0
     y_start, y_end = sorted((y1, y2))
     return x_mid, y_start, y_end

@@ -22,6 +22,8 @@ Segment = tuple[Point, Point]
 
 
 def _build_skeleton_graph(skeleton: np.ndarray) -> nx.Graph:
+
+    ## Use BFS to find connected components and build a graph of pixel adjacency
     ys, xs = np.nonzero(skeleton)
     coords = set(zip(ys.tolist(), xs.tolist()))
     g = nx.Graph()
@@ -104,11 +106,18 @@ def vectorize_mask(
 ) -> list[Segment]:
     """prob_mask: (H, W) float probabilities (or a hard 0/1 mask) in
     [0, 1]. Returns a list of (start, end) segments in (x, y) coords."""
+    ## Binarize 
     binary = prob_mask >= threshold
+
+    ## Skeletonize
     skeleton = skeletonize(binary)
 
+    ## Build pixel-adjacency graph and prune short spurs
     g = _build_skeleton_graph(skeleton)
     g = _prune_spurs(g, min_branch_len=min_branch_len)
+
+    ## For each connected component, take the longest path between its
+    ## two farthest skeleton endpoints and fit a straight line through it.
 
     segments: list[Segment] = []
     for component in nx.connected_components(g):
